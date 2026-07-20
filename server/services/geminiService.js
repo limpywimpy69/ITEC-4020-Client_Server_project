@@ -2,6 +2,9 @@ export async function askGemini(prompt, retries = 2) {
   const start = Date.now();
 
   for (let attempt = 0; attempt <= retries; attempt++) {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 30000);
+
     try {
       const res = await fetch(
         `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash:generateContent?key=${process.env.GEMINI_API_KEY}`,
@@ -15,6 +18,7 @@ export async function askGemini(prompt, retries = 2) {
               }],
             }],
           }),
+          signal: controller.signal,
         }
       );
 
@@ -35,7 +39,15 @@ export async function askGemini(prompt, retries = 2) {
 
       return { modelUsed: 'gemini', responseTimeMs: Date.now() - start, ...parsed };
     } catch (err) {
-      if (attempt === retries) throw err;
+      if (err.name === 'AbortError' && attempt < retries) {
+        console.log(`Gemini timed out, retrying (attempt ${attempt + 1}/${retries})...`);
+        continue;
+      }
+      if (attempt === retries) {
+        throw err.name === 'AbortError' ? new Error('Gemini request timed out after 10s') : err;
+      }
+    } finally {
+      clearTimeout(timeout);
     }
   }
 }
